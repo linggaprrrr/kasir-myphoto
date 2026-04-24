@@ -20,29 +20,42 @@ class Photos extends ResourceController
     }
 
 
-    public function createDir() {
+    public function createDir()
+    {
         $data = $this->request->getPost();
-        $dir = [
-            'kode_transaksi' => $data['kode_transaksi'],
-            'cabang' => $data['cabang'],
-            'user' => $data['user']
-        ];
 
-        $dirPath = 'uploads/' . $data['kode_transaksi'];
-
-        if ($this->dirModel->insert($dir)) {
-            if (!is_dir($dirPath)) {                
-                mkdir($dirPath, 0777, true);
-            } else {
-                // Jika direktori sudah ada, kamu bisa tambahkan logika atau return jika dibutuhkan
-                return $this->respond(['message' => 'Directory already exists'], 400); // 400 untuk Bad Request
-            }
-            
-            
-            return $this->respondCreated(['message' => 'success']);
+        // ✅ Validate input first
+        if (empty($data['kode_transaksi'])) {
+            return $this->fail('kode_transaksi is required');
         }
 
-        return $this->failValidationError('Failed to create photo');
+        $dirPath = WRITEPATH . 'uploads/' . $data['kode_transaksi'];
+
+        try {
+            // ✅ Insert DB first
+            $this->dirModel->insert([
+                'kode_transaksi' => $data['kode_transaksi'],
+                'cabang' => $data['cabang'] ?? '',
+                'user' => $data['user'] ?? '',
+            ]);
+
+            // ✅ Safe directory creation
+            if (!is_dir($dirPath)) {
+                if (!mkdir($dirPath, 0775, true)) {
+                    throw new \Exception('Failed to create directory: ' . $dirPath);
+                }
+            }
+
+            return $this->respondCreated([
+                'message' => 'success',
+                'path' => $dirPath
+            ]);
+
+        } catch (\Throwable $e) {
+            log_message('error', $e->getMessage());
+
+            return $this->failServerError($e->getMessage());
+        }
     }
 
     
