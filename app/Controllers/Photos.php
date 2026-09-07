@@ -83,9 +83,13 @@ public function uploadFile()
         shell_exec($ffmpeg);
     }
 
+    // the file is already on disk here: without this the column default ('pending')
+    // would hide it from the customer page forever
     $data = [
         'file_name' => $fileName,
-        'dir_id' => $id
+        'dir_id' => $id,
+        'status' => 'ready',
+        'file_url' => base_url('uploads/' . $kode . '/' . $fileName)
     ];
 
     $this->photoModel->insert($data);
