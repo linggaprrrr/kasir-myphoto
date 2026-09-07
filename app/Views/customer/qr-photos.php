@@ -42,19 +42,25 @@
 <div class="nk-block">
         
     <div class="row g-gs">
-        <?php if ($photos->getNumRows() > 0) : ?>
+        <?php if ($pending > 0) : ?>
+            <div class="alert alert-info alert-icon">
+                <em class="icon ni ni-upload-cloud"></em>
+                <?= $pending ?> of <?= $total ?> photos are still uploading. This page refreshes by itself &mdash; no need to rescan.
+            </div>
+        <?php endif ?>
+
+        <?php if (count($photos) > 0) : ?>
             <div class="page-title">
-                <label for="">Total: <?= $photos->getNumRows() ?></label>
+                <label for="">Total: <?= count($photos) ?><?= $pending > 0 ? ' / ' . $total : '' ?></label>
             </div>
             
-            <?php if ($photos->getNumRows() > 0) :?>
 
                 <?php if ($created_at && (strtotime($created_at) < strtotime('-5 days'))) : ?>
                     <div class="alert alert-danger alert-icon">
                         <em class="icon ni ni-alert-circle"></em>Your QR code has expired. Please contact us for further assistance.
                     </div>
                 <?php else : ?>
-                    <?php foreach ($photos->getResultObject() as $photo) : ?>
+                    <?php foreach ($photos as $photo) : ?>
                         <div class="col-sm-6 col-lg-2">
                             <div class="gallery card">
                                 <?php 
@@ -121,8 +127,7 @@
                         </div>            
                     <?php endforeach ?>
                 <?php endif; ?>
-            <?php endif ?>
-        <?php else : ?>           
+        <?php elseif ($pending === 0) : ?>           
             <div class="alert alert-warning alert-icon">
                 <em class="icon ni ni-alert-circle"></em> No photos available. Please upload your photos to proceed.
             </div>
@@ -141,4 +146,11 @@
 <?= $this->endSection() ?>
 <?= $this->section('js') ?>
 <script src="/qrcode/lazysizes.min.js"></script>
+<?php if ($pending > 0) : ?>
+<script>
+    // ponytail: plain reload while uploads are outstanding; swap for a status endpoint
+    // if the reload ever interrupts a download
+    setTimeout(() => location.reload(), 8000);
+</script>
+<?php endif ?>
 <?= $this->endSection() ?>

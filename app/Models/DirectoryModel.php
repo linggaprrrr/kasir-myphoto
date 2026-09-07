@@ -17,7 +17,7 @@ class DirectoryModel extends Model
 
     public function getDetailDir($kode) {
         $query = $this->db->table('directories')
-            ->select('directories.kode_transaksi, directories.created_at as dir_date, photos.id as photo_id, photos.file_name, photos.created_at')
+            ->select('directories.kode_transaksi, directories.created_at as dir_date, photos.id as photo_id, photos.file_name, photos.status, photos.created_at')
             ->join('photos', 'photos.dir_id = directories.id')            
             ->where('directories.kode_transaksi', $kode)
             ->orderBy('photos.id', 'DESC')

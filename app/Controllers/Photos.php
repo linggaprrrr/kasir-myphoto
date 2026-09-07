@@ -22,71 +22,97 @@ class Photos extends BaseController
     {
         //
     }
+public function uploadFile()
+{
+    $file = $this->request->getFile('file');
+    $id = $this->request->getVar('id');
+    $kode = preg_replace('/[^A-Za-z0-9_-]/', '', $this->request->getVar('kode'));
 
-    public function uploadFile() {    
-        $file = $this->request->getFile('file');
-        $id = $this->request->getVar('id');
-        $kode = $this->request->getVar('kode');
-
-        $fileExtension = $file->getExtension();
-        
-        // Pastikan folder tujuan ada atau buat folder baru
-        $uploadPath = 'uploads/' . $kode;
-        if (!is_dir($uploadPath)) {
-            mkdir($uploadPath, 777, true); // Buat folder jika belum ada
-        }
-
-        // Periksa apakah file valid dan belum dipindahkan
-        if ($file && $file->isValid() && !$file->hasMoved()) {
-            // Buat nama file baru yang unik
-            $fileName = strtoupper(substr(md5(mt_rand()), 0, 3)) . '_' . $file->getClientName();
-            
-            // Pindahkan file ke folder tujuan
-            $file->move($uploadPath, $fileName);
-            
-            // Jika file adalah video, buat thumbnail
-            if (in_array($fileExtension, ['mp4', 'mov', 'avi', 'mkv'])) {
-                $filePath = $uploadPath . '/' . $fileName;
-
-                // // Path thumbnail yang akan dibuat
-                $thumbnailPath = $filePath. '_thumb.jpg';
-
-                // // Buat thumbnail menggunakan FFmpeg
-                $command = "ffmpeg -i $filePath -ss 00:00:01.000 -vframes 1 $thumbnailPath";
-                shell_exec($command); // Jalankan perintah FFmpeg untuk membuat thumbnail
-            } 
-            
-
-            $data = [
-                'file_name' => $fileName,
-                'dir_id' => $id
-            ];
-            $this->photoModel->insert($data);
-            // Tambahkan 1 ke kolom total_photo di tabel `directories`
-            $this->photoModel->addTotalPhoto($id);
-            // Return JSON response jika berhasil
-            return $this->response->setJSON(['success' => true, 'message' => 'File berhasil diunggah.']);
-        }
-
-        // Return JSON response jika gagal
-        return $this->response->setJSON(['success' => false, 'message' => 'Gagal mengunggah file. Periksa log error untuk detail.']);
+    if (!$file || !$file->isValid() || $file->hasMoved()) {
+        return $this->response->setJSON([
+            'success' => false,
+            'message' => 'Invalid upload'
+        ]);
     }
+
+    // Allowed mime types
+    $allowedMime = [
+        'image/jpeg',
+        'image/png',
+        'image/webp',
+        'video/mp4',
+        'video/quicktime'
+    ];
+
+    $mime = $file->getMimeType();
+
+    if (!in_array($mime, $allowedMime)) {
+        return $this->response->setJSON([
+            'success' => false,
+            'message' => 'File type not allowed'
+        ]);
+    }
+
+    // Absolute path
+    $uploadPath = FCPATH . 'uploads/' . $kode;
+
+    // Create folder
+    if (!is_dir($uploadPath)) {
+        mkdir($uploadPath, 0775, true);
+    }
+
+    // Random filename
+    $extension = $file->getExtension();
+    $fileName = bin2hex(random_bytes(16)) . '.' . $extension;
+
+    // Move file
+    $file->move($uploadPath, $fileName);
+
+    // Video thumbnail
+    if (str_starts_with($mime, 'video/')) {
+
+        $filePath = $uploadPath . '/' . $fileName;
+        $thumbnailPath = $filePath . '_thumb.jpg';
+
+        $ffmpeg = sprintf(
+            'ffmpeg -i %s -ss 00:00:01.000 -vframes 1 %s 2>&1',
+            escapeshellarg($filePath),
+            escapeshellarg($thumbnailPath)
+        );
+
+        shell_exec($ffmpeg);
+    }
+
+    $data = [
+        'file_name' => $fileName,
+        'dir_id' => $id
+    ];
+
+    $this->photoModel->insert($data);
+    $this->photoModel->addTotalPhoto($id);
+
+    return $this->response->setJSON([
+        'success' => true,
+        'message' => 'Upload success'
+    ]);
+}
 
 
     public function QRPhotos($kode) {
-        $dir = $this->dirModel->getDetailDir($kode);
-        $created_at = $dir->getFirstRow('array');
-    
-        // Menggunakan null coalescing operator
-        $created_at_value = $created_at['dir_date'] ?? null;
-        $WA_NUMBER = getenv('WA_NUMBER');
+        $rows = $this->dirModel->getDetailDir($kode)->getResultObject();
+
+        // rows uploaded before the status column existed have none: treat those as ready
+        $isPending = static fn($photo) => in_array($photo->status ?? '', ['pending', 'uploading'], true);
+
         $data = [
             'kode' => $kode,
-            'photos' => $dir,
-            'created_at' => $created_at_value,
-            'WA_NUMBER' => $WA_NUMBER
+            'photos' => array_values(array_filter($rows, static fn($p) => !$isPending($p))),
+            'pending' => count(array_filter($rows, $isPending)),
+            'total' => count($rows),
+            'created_at' => $rows[0]->dir_date ?? null,
+            'WA_NUMBER' => getenv('WA_NUMBER'),
         ];
-    
+
         return view('customer/qr-photos', $data);
     }
     
@@ -95,7 +121,7 @@ class Photos extends BaseController
         $id = $this->request->getVar('id');
         $kode = $this->request->getVar('kode');
         // Hapus foto dari database
-        $this->photoModel->deletePhoto($id);        
+        $this->photoModel->deletePhoto($id, $kode);        
     
         return redirect()->to('/dir/' . $kode)->with('message', 'Photo deleted successfully');
 

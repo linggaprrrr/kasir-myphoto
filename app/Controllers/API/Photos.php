@@ -29,7 +29,7 @@ class Photos extends ResourceController
             return $this->fail('kode_transaksi is required');
         }
 
-        $dirPath = WRITEPATH . 'uploads/' . $data['kode_transaksi'];
+        $dirPath = FCPATH . 'uploads/' . $data['kode_transaksi'];
 
         try {
             // ✅ Insert DB first
@@ -108,81 +108,94 @@ class Photos extends ResourceController
 
     public function uploadPhoto()
     {
-        $kode = $this->request->getPost('kode_transaksi');
-        $fileName = $this->request->getPost('file_name');
-        $file = $this->request->getFile('file');
+        try {
+            $kode = $this->request->getPost('kode_transaksi');
+            $fileName = $this->request->getPost('file_name');
+            $file = $this->request->getFile('file');
 
-        
-        if (!$kode || !$fileName || !$file) {
-            return $this->failValidationError('Invalid request');
-        }
+            log_message('error', 'UPLOAD DEBUG: kode=' . $kode . ', file_name=' . $fileName);
+            
+            if (!$kode || !$fileName || !$file) {
+                return $this->failValidationError('Invalid request');
+            }
 
-        $db = \Config\Database::connect();
+            $db = \Config\Database::connect();
 
-        // 🔍 find directory
-        $dir = $this->dirModel
-            ->where('kode_transaksi', $kode)
-            ->get()
-            ->getRowArray();
+            // 🔍 find directory
+            $dir = $this->dirModel
+                ->where('kode_transaksi', $kode)
+                ->get()
+                ->getRowArray();
 
-        if (!$dir) {
-            return $this->failNotFound('Directory not found');
-        }
+            if (!$dir) {
+                return $this->failNotFound('Directory not found');
+            }
 
-        $db->transStart();
+            $db->transStart();
 
-        // 🔒 LOCK photo row
-        $photo = $db->query("
-            SELECT * FROM photos
-            WHERE dir_id = ? AND file_name = ?
-            FOR UPDATE
-        ", [$dir['id'], $fileName])->getRowArray();
+            // 🔒 LOCK photo row
+            $photo = $db->query("
+                SELECT * FROM photos
+                WHERE dir_id = ? AND file_name = ?
+                FOR UPDATE
+            ", [$dir['id'], $fileName])->getRowArray();
 
-        // ❌ if photo not registered
-        if (!$photo) {
-            $db->transRollback();
-            return $this->failNotFound('Photo not registered in transaction');
-        }
+            // ❌ if photo not registered
+            if (!$photo) {
+                $db->transRollback();
+                return $this->failNotFound('Photo not registered in transaction');
+            }
 
-        // ✅ already uploaded (idempotent)
-        if ($photo['status'] === 'ready') {
+            // ✅ already uploaded (idempotent)
+            if (($photo['status'] ?? 'pending') === 'ready') {
+                $db->transCommit();
+                return $this->respond([
+                    'status' => 'success',
+                    'message' => 'Already uploaded',
+                    'url' => $photo['file_url']
+                ]);
+            }
+
+            // 🔄 mark uploading
+            $this->photoModel->update($photo['id'], [
+                'status' => 'uploading'
+            ]);
+
             $db->transCommit();
+
+            // 📦 SAVE FILE (outside transaction)
+            $newName = $fileName;
+            $dirPath = FCPATH . 'uploads/' . $kode;
+
+            if (!is_dir($dirPath)) {
+                mkdir($dirPath, 0777, true);
+            }
+
+            $file->move($dirPath, $newName);
+
+            $url = base_url('uploads/' . $kode . '/' . $newName);
+
+            // ✅ final update
+            $this->photoModel->update($photo['id'], [
+                'status' => 'ready',
+                'file_url' => $url
+            ]);
+
             return $this->respond([
                 'status' => 'success',
-                'message' => 'Already uploaded',
-                'url' => $photo['file_url']
+                'url' => $url
             ]);
+        } catch (\Throwable $e) {
+            log_message('error', 'UPLOAD EXCEPTION: ' . $e->getMessage());
+            log_message('error', $e->getTraceAsString());
+
+            return $this->response
+                ->setStatusCode(500)
+                ->setJSON([
+                    'status' => 'error',
+                    'message' => $e->getMessage(),
+                ]);
         }
-
-        // 🔄 mark uploading
-        $this->photoModel->update($photo['id'], [
-            'status' => 'uploading'
-        ]);
-
-        $db->transCommit();
-
-        // 📦 SAVE FILE (outside transaction)
-        $newName = $fileName;
-        $dirPath = FCPATH . 'uploads/' . $kode;
-
-        if (!is_dir($dirPath)) {
-            mkdir($dirPath, 0777, true);
-        }
-
-        $file->move($dirPath, $newName);
-
-        $url = base_url('uploads/' . $kode . '/' . $newName);
-
-        // ✅ final update
-        $this->photoModel->update($photo['id'], [
-            'status' => 'ready',
-            'file_url' => $url
-        ]);
-
-        return $this->respond([
-            'status' => 'success',
-            'url' => $url
-        ]);
     }
 
     public function registerPhotos()

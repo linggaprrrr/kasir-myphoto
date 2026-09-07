@@ -7,6 +7,7 @@ use CodeIgniter\Model;
 class PhotoModel extends Model
 {
     protected $table            = 'photos';
+    protected $primaryKey = 'id';
     protected $allowedFields = ['file_name', 'dir_id', 'file_url', 'status', 'created_at'];
     protected $db;
 
@@ -24,14 +25,15 @@ class PhotoModel extends Model
             ->update();
     }
 
-    public function deletePhoto($id)
+    public function deletePhoto($id, $kode)
     {
         
         $this->db->table('photos')->where('id', $id)->delete();
 
         
         $this->db->table('directories')
-            ->set('total_photo', 'total_photo - 1', false) // false agar tidak di-escape
+            ->set('total_photo', 'total_photo - 1', false)
+            ->where('kode_transaksi', $kode)
             ->update();
     }
 }
