@@ -55,6 +55,7 @@ class BackfillPhotoStatus extends BaseCommand
 
             if (!is_file($path)) {
                 $missing++;
+                CLI::write('  belum ada: ' . $row['kode_transaksi'] . '/' . $row['file_name'], 'yellow');
                 continue;
             }
 
